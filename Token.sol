@@ -35,6 +35,8 @@ contract Token {
     event Approval(address indexed owner, address indexed spender, uint256 value);
     event HaltTokenAllOperation();
     event ResumeTokenAllOperation();
+    event ResumeCrowdsale();
+    event PausedCrowdsale();
     event TokenPurchase(address indexed purchaser, address indexed beneficiary, uint256 value, uint256 amount);
 
     using SafeMath for uint256;
@@ -67,6 +69,8 @@ contract Token {
 
     bool public active = true;
 
+    bool public crowdsale = false;
+
     // 1 ether = 300 token
     uint public PRICE;
 
@@ -81,6 +85,11 @@ contract Token {
         _;
     }
 
+    modifier isCrowdsale() {
+        require(crowdsale);
+        _;
+    }
+
     // Delete / kill the contract... only the owner has rights to do this
     function kill() onlyOwner {
       suicide(owner);
@@ -89,17 +98,17 @@ contract Token {
     // Constructor
     // @notice Token Contract
     // @return the transaction address
-    function Token(string _name, string _symbol, uint _decimals, uint _initialSupply, uint _tokenPrice, address _tokenOwner, uint256 _startTime, uint256 _endTime) {
-        require(_startTime >= getNow() && _endTime >= _startTime && _tokenPrice > 0 && _tokenOwner != 0x0);
+    function Token(string _name, string _symbol, uint _initialSupply, uint _tokenPrice, address _tokenOwner, uint256 _startTime, uint256 _endTime, uint _crowdsalePercentage) {
+        require(_tokenPrice > 0 && _tokenOwner != 0x0 && _crowdsalePercentage > 0 && _crowdsalePercentage <= 100);
 
         startTime = _startTime;
         endTime = _endTime;
 
         name = _name;
         symbol = _symbol;
-        decimals = _decimals;
-        _totalSupply = _initialSupply;
-        _crowdsaleSupply = _totalSupply;
+        decimals = 18;
+        _totalSupply = _initialSupply.mul(1 ether);
+        _crowdsaleSupply = _totalSupply.mul(_crowdsalePercentage).div(100);
         PRICE = _tokenPrice;
 
         owner = msg.sender;
@@ -130,16 +139,24 @@ contract Token {
         owner = _newOwner;
     }
 
-    // Payable method
-    // @notice Anyone can buy the tokens on crowdsale by paying ether
-    function () payable isActive {
-        crowdsale(msg.sender);
+    function changeStartTime(uint256 _startTime) onlyOwner isActive {
+       startTime = _startTime;
     }
 
-    // @notice crowdsale
+    function changeEndTime(uint256 _endTime) onlyOwner isActive {
+       endTime = _endTime;
+    }
+
+    // Payable method
+    // @notice Anyone can buy the tokens on crowdsale by paying ether
+    function () payable isActive isCrowdsale  {
+        crowdsaleProcess(msg.sender);
+    }
+
+    // @notice crowdsale process
     // @param recipient The address of the recipient
     // @return the transaction address and send the event as Transfer
-    function crowdsale(address recipient) payable isActive {
+    function crowdsaleProcess(address recipient) payable isActive isCrowdsale {
         require (
             validPurchase() && recipient != 0x0
         );
@@ -147,7 +164,7 @@ contract Token {
         uint256 weiAmount = msg.value;
 
         uint tokens = weiAmount.mul(getPrice());
-        tokens = tokens.div(1 ether);
+        //tokens = tokens.div(1 ether);
 
         require (
             _crowdsaleSupply >= tokens
@@ -178,7 +195,16 @@ contract Token {
         return withinPeriod && nonZeroPurchase;
     }
 
-     // Halt or Resume all operations on contract & Crowd Sale
+    // Halt or Resume all operations on contract & Crowd Sale
+    function pauseResumeCrowdsale(bool _crowdsale) onlyOwner {
+        crowdsale = _crowdsale;
+        if (crowdsale)
+            ResumeCrowdsale();
+        else
+           PausedCrowdsale();
+    }
+
+    // Halt or Resume all operations on contract & Crowd Sale
     function haltAllOperation(bool _active) onlyOwner {
         active = _active;
         if (active)
